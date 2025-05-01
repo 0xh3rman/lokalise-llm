@@ -1,0 +1,34 @@
+{
+  "name": "lokalise-llm",
+  "version": "1.0.0",
+  "description": "Lokalise + LLM Translation CLI",
+  "main": "dist/cli.js",
+  "bin": {
+    "lokalise-llm": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "ts-node src/cli.ts",
+    "dev": "ts-node src/cli.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "lokalise",
+    "translation",
+    "llm",
+    "openai",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@lokalise/node-api": "^14.4.0",
+    "commander": "^11.0.0",
+    "openai": "^3.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.4.5",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.1.6"
+  }
+}
