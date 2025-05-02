@@ -33,6 +33,7 @@ async function fetchKeys(filterUntranslated = false, targetLang?: string) {
     const params: any = {
         project_id: PROJECT_ID,
         include_translations: 1,
+        limit: 500,
     };
 
     // Add filter for untranslated keys if requested
@@ -72,7 +73,13 @@ async function translateBatch(
 ): Promise<Array<{ key_id: number; translation: string }>> {
     // Replace {language} placeholder in template with the actual language
     const processedTemplate = template.replace('{language}', lang);
-    const inputList = batch.map(k => ({ key_id: k.key_id, text: k.base_string }));
+
+    // Create input list with key_id and text (the English source)
+    const inputList = batch.map(k => ({
+        key_id: k.key_id,
+        text: k.base_string
+    }));
+
     const userContent = `${processedTemplate}
 
 Return results as a JSON array with this format:
@@ -145,13 +152,29 @@ async function commandTranslate(
 
     for (const lang of langs) {
         const keysToTranslate = allKeys.filter((key: any) => {
+            // Skip keys without a base string (English translation)
             if (!key.base_string) return false;
-            return !key.translations?.some((t: any) => t.language_iso === lang);
+
+            // Find the translation for this language
+            const translation = key.translations?.find((t: any) => t.language_iso === lang);
+
+            // Include keys that either have no translation for this language
+            // or have an empty translation
+            return !translation || translation.translation === "";
         });
 
         console.log(
             `Translating to ${lang} with model ${model}: ${keysToTranslate.length} keys, batch size ${batchSize}`
         );
+
+        // Debug: Show some examples of keys that need translation
+        if (keysToTranslate.length > 0) {
+            console.log("Examples of keys that need translation:");
+            keysToTranslate.slice(0, 3).forEach((key: any, index: number) => {
+                const translation = key.translations?.find((t: any) => t.language_iso === lang);
+                console.log(`  ${index + 1}. [${key.key_id}] ${key.key_name.ios}: "${key.base_string.substring(0, 30)}${key.base_string.length > 30 ? '...' : ''}" (${translation ? 'empty translation' : 'no translation entry'})`);
+            });
+        }
 
         const translations: Array<{ key_id: number; source: string; translation: string }> = [];
 
@@ -162,8 +185,16 @@ async function commandTranslate(
             try {
                 const results = await translateBatch(batch, lang, model, template);
                 results.forEach(r => {
-                    translations.push({ key_id: r.key_id, source: '', translation: r.translation });
-                    console.log(`→ [${r.key_id}] ${r.translation}`);
+                    // Find the original key to get the base_string (English source)
+                    const originalKey = allKeys.find((key: any) => key.key_id === r.key_id);
+                    const source = originalKey?.base_string || '';
+
+                    translations.push({
+                        key_id: r.key_id,
+                        source: source,
+                        translation: r.translation
+                    });
+                    console.log(`→ [${r.key_id}] "${source.substring(0, 30)}${source.length > 30 ? '...' : ''}" → "${r.translation}"`);
                 });
             } catch (e) {
                 console.error(`Batch ${Math.floor(i / batchSize) + 1} failed:`, e);
@@ -286,7 +317,7 @@ program.version('1.0.0').description('Lokalise + LLM Translation CLI');
 program
     .command('list')
     .description('List and download untranslated keys from Lokalise')
-    .requiredOption('-l, --lang <langs...>', 'Target languages, e.g. zh-CN ja zh-TW')
+    .requiredOption('-l, --lang <langs...>', 'Target languages, e.g. zh_CN ja zh_TW')
     .option('-s, --save', 'Save keys to JSON file', true)
     .option('-a, --all', 'Include all keys, not just untranslated ones', false)
     .action(opts =>
@@ -300,7 +331,7 @@ program
 program
     .command('translate')
     .description('Fetch keys and generate translations, saving language-specific files')
-    .requiredOption('-l, --lang <langs...>', 'Target languages, e.g. zh-CN ja zh-TW')
+    .requiredOption('-l, --lang <langs...>', 'Target languages, e.g. zh_CN ja zh_TW')
     .option('-m, --model <model>', 'OpenAI model to use', 'gpt-4.1-mini')
     .option('-p, --prompt-file <file>', 'Path to prompt template', 'prompt.txt')
     .option('-b, --batch-size <number>', 'Number of keys per batch', '20')
@@ -316,7 +347,7 @@ program
 program
     .command('push')
     .description('Push translation file back to Lokalise')
-    .requiredOption('-l, --lang <lang>', 'Language to push, e.g. zh-CN')
+    .requiredOption('-l, --lang <lang>', 'Language to push, e.g. zh_CN')
     .option('-f, --file <file>', 'Translation file path', `translations-<lang>.json`)
     .action(opts => {
         const file = opts.file.replace('<lang>', opts.lang);

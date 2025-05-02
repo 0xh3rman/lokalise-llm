@@ -57,11 +57,11 @@ The CLI provides a three-stage workflow for translating content:
 List and download untranslated keys from Lokalise:
 
 ```bash
-pnpm start list --lang zh-CN ja
+pnpm start list --lang zh_CN ja
 ```
 
 Options:
-- `--lang` (required): Target languages, e.g., zh-CN ja zh-TW
+- `--lang` (required): Target languages, e.g., zh_CN ja zh_TW
 - `--save`: Save keys to JSON file (default: true)
 - `--all`: Include all keys, not just untranslated ones (default: false)
 
@@ -74,30 +74,31 @@ This command will:
 Translate keys from a Lokalise project to one or more target languages:
 
 ```bash
-pnpm start translate --lang zh-CN ja --model gpt-4.1-mini --prompt-file prompt.txt --batch-size 20
+pnpm start translate --lang zh_CN ja --model gpt-4.1-mini --prompt-file prompt.txt --batch-size 20
 ```
 
 Options:
-- `--lang` (required): Target languages, e.g., zh-CN ja zh-TW
+- `--lang` (required): Target languages, e.g., zh_CN ja zh_TW
 - `--model`: OpenAI model to use (default: gpt-4.1-mini)
 - `--prompt-file`: Path to prompt template (default: prompt.txt)
 - `--batch-size`: Number of keys per batch (default: 20)
 
 This command will:
 - Load keys from `keys.json` if it exists, or fetch them from Lokalise if not
-- Translate untranslated keys using OpenAI with English as the source language
-- Save the translations to files (e.g., `translations-zh-CN.json`, `translations-ja.json`)
+- Find keys that have no translation or empty translation for the target language
+- Translate these keys using OpenAI with English as the source language
+- Save the translations to files (e.g., `translations-zh_CN.json`, `translations-ja.json`) including both source text and translation for easy review
 
 ### 3. Push Translations
 
 Push translated strings back to Lokalise:
 
 ```bash
-pnpm start push --lang zh-CN --file translations-zh-CN.json
+pnpm start push --lang zh_CN --file translations-zh_CN.json
 ```
 
 Options:
-- `--lang` (required): Language to push, e.g., zh-CN
+- `--lang` (required): Language to push, e.g., zh_CN
 - `--file`: Translation file path (default: translations-<lang>.json)
 
 This command will:
