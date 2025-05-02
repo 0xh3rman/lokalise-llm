@@ -1,5 +1,7 @@
 # Lokalise LLM Translation CLI
 
+[![CI](https://github.com/0xh3rman/lokalise-llm/actions/workflows/ci.yml/badge.svg)](https://github.com/0xh3rman/lokalise-llm/actions/workflows/ci.yml)
+
 A command-line tool for translating Lokalise project strings using OpenAI's language models.
 
 ## Requirements
