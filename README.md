@@ -26,17 +26,50 @@ pnpm build
 
 ## Environment Variables
 
-Create a `.env` file in the root directory with the following variables:
+The project uses dotenv to load environment variables from a `.env` file. A template `.env` file has been created for you. Fill in your API keys and project ID:
 
 ```
+# OpenAI API key
 OPENAI_API_KEY=your_openai_api_key
+
+# Lokalise API token
 LOKALISE_TOKEN=your_lokalise_api_token
+
+# Lokalise project ID
 LOKALISE_PROJECT_ID=your_lokalise_project_id
 ```
 
+You can obtain:
+- OpenAI API key from your [OpenAI dashboard](https://platform.openai.com/api-keys)
+- Lokalise API token from your [Lokalise profile](https://app.lokalise.com/profile#apitokens)
+- Lokalise project ID from your project URL (e.g., https://app.lokalise.com/project/PROJECT_ID)
+
 ## Usage
 
-### Translate Keys
+The CLI provides a three-stage workflow for translating content:
+
+1. **List** - List and download untranslated keys
+2. **Translate** - Translate the keys using OpenAI
+3. **Push** - Push the translations back to Lokalise
+
+### 1. List and Download Untranslated Keys
+
+List and download untranslated keys from Lokalise:
+
+```bash
+pnpm start list --lang zh-CN ja
+```
+
+Options:
+- `--lang` (required): Target languages, e.g., zh-CN ja zh-TW
+- `--save`: Save keys to JSON file (default: true)
+- `--all`: Include all keys, not just untranslated ones (default: false)
+
+This command will:
+- Display a list of untranslated keys in the console with English as the base string
+- Save the keys to a single `keys.json` file containing only the requested languages and English
+
+### 2. Translate Keys
 
 Translate keys from a Lokalise project to one or more target languages:
 
@@ -50,7 +83,12 @@ Options:
 - `--prompt-file`: Path to prompt template (default: prompt.txt)
 - `--batch-size`: Number of keys per batch (default: 20)
 
-### Push Translations
+This command will:
+- Load keys from `keys.json` if it exists, or fetch them from Lokalise if not
+- Translate untranslated keys using OpenAI with English as the source language
+- Save the translations to files (e.g., `translations-zh-CN.json`, `translations-ja.json`)
+
+### 3. Push Translations
 
 Push translated strings back to Lokalise:
 
@@ -61,6 +99,10 @@ pnpm start push --lang zh-CN --file translations-zh-CN.json
 Options:
 - `--lang` (required): Language to push, e.g., zh-CN
 - `--file`: Translation file path (default: translations-<lang>.json)
+
+This command will:
+- Read the translations from the specified file
+- Push them back to Lokalise
 
 ## Prompt Template
 

@@ -5,6 +5,10 @@ import fs from 'fs';
 import path from 'path';
 import { Configuration, OpenAIApi } from 'openai';
 import { LokaliseApi } from '@lokalise/node-api';
+import dotenv from 'dotenv';
+
+// Load environment variables from .env file
+dotenv.config();
 
 // Environment variables required: OPENAI_API_KEY, LOKALISE_TOKEN, LOKALISE_PROJECT_ID
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -21,32 +25,55 @@ const lokalise = new LokaliseApi({ apiKey: LOKALISE_TOKEN });
 const OUTPUT_DIR = './';
 
 // Retrieve all keys from Lokalise, including existing translations
-async function fetchKeys() {
+async function fetchKeys(filterUntranslated = false, targetLang?: string) {
     if (!PROJECT_ID) {
         throw new Error('PROJECT_ID is required');
     }
-    const response = await lokalise.keys().list({
+
+    const params: any = {
         project_id: PROJECT_ID,
         include_translations: 1,
-    });
+    };
+
+    // Add filter for untranslated keys if requested
+    if (filterUntranslated) {
+        params.filter_untranslated = 1;
+
+        // If target language is specified, filter by that language
+        if (targetLang) {
+            params.filter_lang_iso = targetLang;
+        }
+    }
+
+    const response = await lokalise.keys().list(params);
 
     // Map the response to the format we need
-    return response.items.map(key => ({
-        key_id: key.key_id,
-        base_string: key.translations?.[0]?.translation || '',
-        translations: key.translations
-    }));
+    return response.items.map(key => {
+        // Find the English translation to use as base_string
+        const englishTranslation = key.translations?.find(t =>
+            t.language_iso === 'en' || t.language_iso === 'en_US' || t.language_iso === 'en-US'
+        );
+
+        return {
+            key_id: key.key_id,
+            key_name: key.key_name,
+            base_string: englishTranslation?.translation || key.translations?.[0]?.translation || '',
+            translations: key.translations
+        };
+    });
 }
 
 // Perform batch translation via OpenAI, returning parsed JSON results
 async function translateBatch(
     batch: Array<{ key_id: number; base_string: string }>,
-    lang: string,
+    lang: string, // Target language (used in the template)
     model: string,
     template: string
 ): Promise<Array<{ key_id: number; translation: string }>> {
+    // Replace {language} placeholder in template with the actual language
+    const processedTemplate = template.replace('{language}', lang);
     const inputList = batch.map(k => ({ key_id: k.key_id, text: k.base_string }));
-    const userContent = `${template}
+    const userContent = `${processedTemplate}
 
 Return results as a JSON array with this format:
 [
@@ -89,13 +116,37 @@ async function commandTranslate(
     console.log(`Loading prompt template from ${promptFile}...`);
     const template = fs.readFileSync(path.resolve(promptFile), 'utf-8');
 
-    console.log(`Fetching keys from project ${PROJECT_ID}...`);
-    const allKeys = await fetchKeys();
+    // Try to load keys from keys.json first
+    let allKeys;
+    const keysFile = path.resolve(OUTPUT_DIR, 'keys.json');
+
+    if (fs.existsSync(keysFile)) {
+        console.log(`Loading keys from ${keysFile}...`);
+        allKeys = JSON.parse(fs.readFileSync(keysFile, 'utf-8'));
+    } else {
+        console.log(`Keys file not found. Fetching keys from project ${PROJECT_ID}...`);
+        // Create a set of target languages for easy lookup
+        const targetLangs = new Set(langs);
+
+        // Fetch keys for the first language
+        const keys = await fetchKeys(true, langs[0]);
+
+        // Filter translations to only include requested languages and English
+        allKeys = keys.map(key => ({
+            ...key,
+            translations: key.translations?.filter(t =>
+                targetLangs.has(t.language_iso) ||
+                t.language_iso === 'en' ||
+                t.language_iso === 'en_US' ||
+                t.language_iso === 'en-US'
+            )
+        }));
+    }
 
     for (const lang of langs) {
-        const keysToTranslate = allKeys.filter(key => {
+        const keysToTranslate = allKeys.filter((key: any) => {
             if (!key.base_string) return false;
-            return !key.translations?.some(t => t.language_iso === lang);
+            return !key.translations?.some((t: any) => t.language_iso === lang);
         });
 
         console.log(
@@ -106,7 +157,7 @@ async function commandTranslate(
 
         for (let i = 0; i < keysToTranslate.length; i += batchSize) {
             const batch = keysToTranslate.slice(i, i + batchSize);
-            console.log(`Processing batch ${i / batchSize + 1} (${batch.length} keys)...`);
+            console.log(`Processing batch ${Math.floor(i / batchSize) + 1} (${batch.length} keys)...`);
 
             try {
                 const results = await translateBatch(batch, lang, model, template);
@@ -115,7 +166,7 @@ async function commandTranslate(
                     console.log(`→ [${r.key_id}] ${r.translation}`);
                 });
             } catch (e) {
-                console.error(`Batch ${i / batchSize + 1} failed:`, e);
+                console.error(`Batch ${Math.floor(i / batchSize) + 1} failed:`, e);
             }
 
             // Pause to respect rate limits
@@ -125,6 +176,51 @@ async function commandTranslate(
         const outFile = path.resolve(OUTPUT_DIR, `translations-${lang}.json`);
         fs.writeFileSync(outFile, JSON.stringify(translations, null, 2));
         console.log(`Translations saved to ${outFile}`);
+    }
+}
+
+// Command to list and download untranslated keys
+async function commandList(langs: string[], saveToFile: boolean, includeTranslated: boolean) {
+    console.log(`Fetching keys from project ${PROJECT_ID}...`);
+
+    // Create a set of target languages for easy lookup
+    const targetLangs = new Set(langs);
+
+    // We'll fetch keys for the first language to get a baseline
+    const firstLang = langs[0];
+    console.log(`\nFetching keys for language: ${firstLang}`);
+
+    // Fetch keys that need translation for this language
+    const keys = await fetchKeys(!includeTranslated, firstLang);
+
+    if (keys.length === 0) {
+        console.log(`No ${includeTranslated ? '' : 'untranslated '}keys found for language ${firstLang}`);
+        return;
+    }
+
+    console.log(`Found ${keys.length} ${includeTranslated ? '' : 'untranslated '}keys for language ${firstLang}`);
+
+    // Filter translations to only include requested languages and English (for base_string)
+    const filteredKeys = keys.map(key => ({
+        ...key,
+        translations: key.translations?.filter(t =>
+            targetLangs.has(t.language_iso) ||
+            t.language_iso === 'en' ||
+            t.language_iso === 'en_US' ||
+            t.language_iso === 'en-US'
+        )
+    }));
+
+    // Display keys in the console
+    filteredKeys.forEach((key, index) => {
+        console.log(`${index + 1}. [${key.key_id}] ${key.key_name}: "${key.base_string.substring(0, 50)}${key.base_string.length > 50 ? '...' : ''}"`);
+    });
+
+    // Save keys to file if requested
+    if (saveToFile) {
+        const outFile = path.resolve(OUTPUT_DIR, `keys.json`);
+        fs.writeFileSync(outFile, JSON.stringify(filteredKeys, null, 2));
+        console.log(`Keys saved to ${outFile}`);
     }
 }
 
@@ -186,6 +282,20 @@ async function commandPush(lang: string, file: string) {
 // CLI setup
 const program = new Command();
 program.version('1.0.0').description('Lokalise + LLM Translation CLI');
+
+program
+    .command('list')
+    .description('List and download untranslated keys from Lokalise')
+    .requiredOption('-l, --lang <langs...>', 'Target languages, e.g. zh-CN ja zh-TW')
+    .option('-s, --save', 'Save keys to JSON file', true)
+    .option('-a, --all', 'Include all keys, not just untranslated ones', false)
+    .action(opts =>
+        commandList(
+            opts.lang,
+            opts.save,
+            opts.all
+        )
+    );
 
 program
     .command('translate')

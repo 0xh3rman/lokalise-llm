@@ -24,6 +24,7 @@
   "dependencies": {
     "@lokalise/node-api": "^14.4.0",
     "commander": "^11.0.0",
+    "dotenv": "^16.5.0",
     "openai": "^3.3.0"
   },
   "devDependencies": {
