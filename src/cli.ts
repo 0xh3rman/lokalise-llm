@@ -259,55 +259,112 @@ async function commandList(langs: string[], saveToFile: boolean, includeTranslat
 async function commandPush(lang: string, file: string) {
     const data = JSON.parse(
         fs.readFileSync(path.resolve(file), 'utf-8')
-    ) as Array<{ key_id: number; translation: string }>;
+    ) as Array<{ key_id: number; source: string; translation: string }>;
+
+    if (!PROJECT_ID) {
+        throw new Error('PROJECT_ID is required');
+    }
+
+    console.log(`Pushing ${data.length} translations to Lokalise for language ${lang}...`);
+
+    // First, get all the keys in a single request to reduce API calls
+    console.log("Fetching all keys from Lokalise...");
+    const allKeysResponse = await lokalise.keys().list({
+        project_id: PROJECT_ID,
+        include_translations: 1,
+        limit: 5000 // Get as many as possible in one request
+    });
+
+    // Create a map of key_id to key for faster lookup
+    const keyMap = new Map();
+    for (const key of allKeysResponse.items) {
+        keyMap.set(key.key_id, key);
+    }
+
+    console.log(`Found ${keyMap.size} keys in the project.`);
 
     const batchSize = 50;
+    let successCount = 0;
+    let updateCount = 0;
+    let createCount = 0;
+    let errorCount = 0;
+
     for (let i = 0; i < data.length; i += batchSize) {
-        const batch = data.slice(i, i + batchSize).map(item => ({
-            key_id: item.key_id,
-            language_iso: lang,
-            translation: item.translation,
-        }));
+        const batch = data.slice(i, i + batchSize);
+        console.log(`Processing batch ${Math.floor(i / batchSize) + 1} of ${Math.ceil(data.length / batchSize)} (${batch.length} translations)...`);
 
         try {
-            // Update translations one by one since the bulk create endpoint is not available
+            // Process translations one by one
             for (const item of batch) {
-                // First we need to find the translation ID for this key and language
-                if (!PROJECT_ID) {
-                    throw new Error('PROJECT_ID is required');
+                try {
+                    // Find the key in our map
+                    const key = keyMap.get(item.key_id);
+
+                    if (!key) {
+                        console.warn(`Key ${item.key_id} not found in the project.`);
+                        errorCount++;
+                        continue;
+                    }
+
+                    // Find the translation for the specified language
+                    const translationObj = key.translations?.find((t: any) => t.language_iso === lang);
+
+                    if (translationObj && translationObj.translation_id) {
+                        // Update existing translation
+                        await lokalise.translations().update(
+                            translationObj.translation_id,
+                            { translation: item.translation },
+                            { project_id: PROJECT_ID }
+                        );
+                        updateCount++;
+                    } else {
+                        // Create new translation using the bulk update endpoint
+                        await lokalise.keys().bulk_update(
+                            {
+                                keys: [
+                                    {
+                                        key_id: item.key_id,
+                                        translations: [
+                                            {
+                                                language_iso: lang,
+                                                translation: item.translation
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            { project_id: PROJECT_ID }
+                        );
+                        createCount++;
+                    }
+
+                    successCount++;
+                } catch (itemError) {
+                    console.error(`Error processing key ${item.key_id}:`, itemError);
+                    errorCount++;
                 }
 
-                // Find the translation by key ID and language
-                const keys = await lokalise.keys().list({
-                    project_id: PROJECT_ID,
-                    include_translations: 1,
-                    filter_keys: item.key_id.toString(),
-                    limit: 1
-                });
-
-                // Find the translation for the specified language
-                const key = keys.items[0];
-                const translationObj = key?.translations?.find(t => t.language_iso === lang);
-
-                if (translationObj && translationObj.translation_id) {
-                    await lokalise.translations().update(
-                        translationObj.translation_id,
-                        { translation: item.translation },
-                        { project_id: PROJECT_ID }
-                    );
-                } else {
-                    console.warn(`No translation found for key ${item.key_id} in language ${lang}`);
-                }
+                // Small pause between individual translations to respect rate limits
+                await new Promise(r => setTimeout(r, 100));
             }
-            console.log(`Pushed batch ${i / batchSize + 1}`);
-        } catch (e) {
-            console.error(`Failed to push batch ${i / batchSize + 1}:`, e);
+
+            console.log(`Completed batch ${Math.floor(i / batchSize) + 1}`);
+        } catch (batchError) {
+            console.error(`Failed to process batch ${Math.floor(i / batchSize) + 1}:`, batchError);
         }
 
-        // Pause to respect rate limits
+        // Pause between batches to respect rate limits
         await new Promise(r => setTimeout(r, 500));
     }
-    console.log('All translations pushed successfully.');
+
+    console.log(`
+Translation push summary:
+- Total: ${data.length}
+- Successful: ${successCount}
+  - Updated: ${updateCount}
+  - Created: ${createCount}
+- Failed: ${errorCount}
+`);
 }
 
 // CLI setup

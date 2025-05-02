@@ -102,8 +102,10 @@ Options:
 - `--file`: Translation file path (default: translations-<lang>.json)
 
 This command will:
-- Read the translations from the specified file
-- Push them back to Lokalise
+- Load translations from the specified file
+- Fetch all keys from Lokalise to find existing translations
+- Update existing translations or create new ones as needed
+- Show a summary of the push operation (updated, created, and failed translations)
 
 ## Prompt Template
 
