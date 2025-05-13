@@ -59,7 +59,7 @@ The CLI provides a three-stage workflow for translating content:
 List and download untranslated keys from Lokalise:
 
 ```bash
-pnpm start list --lang zh_CN ja
+pnpm start list --lang zh_CN zh_TW ja
 ```
 
 Options:
@@ -76,7 +76,7 @@ This command will:
 Translate keys from a Lokalise project to one or more target languages:
 
 ```bash
-pnpm start translate --lang zh_CN ja --model gpt-4.1-mini --prompt-file prompt.txt --batch-size 20
+pnpm start translate --lang zh_CN zh_TW ja --model gpt-4.1-mini --prompt-file prompt.txt --batch-size 20
 ```
 
 Options:
